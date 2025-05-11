@@ -1,0 +1,94 @@
+---
+description: Follow these rules when working on auth.
+globs: 
+alwaysApply: false
+---
+---
+description: Follow these rules when working on auth.
+globs: 
+---
+### Auth Rules
+
+It uses Clerk for authentication.
+
+- #### General Rules
+
+- Use Clerk middleware to protect routes.
+- Use Clerk components (`<UserButton>`, `<SignInButton>`, etc.) for UI elements.
+- Import the auth helper with `import { auth } from "@clerk/nextjs/server"` in server components
+- await the auth helper in server actions
+- Use Clerk server-side helpers (`auth()`) in Server Actions to get user ID.
+
+#### Securing Server Actions with User ID
+
+When Server Actions interact with data tied to a specific user (e.g., fetching, creating, updating, or deleting user-specific records), they **must** enforce data ownership using the authenticated user's ID obtained via Clerk.
+
+1.  **Enforce Authentication:** Begin every Server Action requiring user data by calling the `requireUserId` helper function (from `@/actions/auth-actions.ts`) inside a `try...catch` block. This function internally calls `await auth()` from `@clerk/nextjs/server` and throws an "Unauthorized" error if the user is not logged in, halting the action safely.
+
+```typescript
+// actions/prompts-actions.ts
+"use server";
+
+import { db } from "@/db";
+import { prompts } from "@/db/schema/prompts-schema";
+import { devDelay } from "@/lib/dev-delay";
+// Import Drizzle operators 'and' and 'eq' (equals)
+import { and, desc, eq } from "drizzle-orm";
+// Import our auth helper
+import { requireUserId } from "./auth-actions";
+
+// --- GET Prompts ---
+export async function getPrompts() {
+  try {
+    // Get user ID; throws error if not logged in
+    const userId = await requireUserId();
+    await devDelay();
+
+    console.log(`Server Action: Fetching prompts for user ${userId}...`);
+    // Add WHERE clause to filter by user_id
+    const userPrompts = await db
+      .select()
+      .from(prompts)
+      .where(eq(prompts.user_id, userId)) // Only select prompts matching the user ID
+      .orderBy(desc(prompts.created_at));
+
+    console.log(`Server Action: Fetched ${userPrompts.length} prompts.`);
+    return userPrompts;
+  } catch (error) {
+    console.error("Server Action Error (getPrompts):", error);
+    // Propagate the specific "Unauthorized" error or a generic one
+    if (error instanceof Error && error.message.startsWith("Unauthorized")) {
+      throw error;
+    }
+    throw new Error("Failed to fetch prompts.");
+  }
+}
+```
+
+2.  **Filter Database Queries:** Always incorporate the `userId` obtained from `requireUserId` into your Drizzle database queries:
+    *   **Read (`query.findMany`, `select().where`):** Use `where(eq(table.userId, userId))`
+    *   **Create (`db.insert`):** Include `{ userId: userId, ...otherData }` in the `values()` call.
+    *   **Update (`db.update`):** Use `where(and(eq(table.id, recordId), eq(table.userId, userId)))`.
+    *   **Delete (`db.delete`):** Use `where(and(eq(table.id, recordId), eq(table.userId, userId)))`.
+
+3.  **Verify Update/Delete Operations:** After update or delete operations scoped by `userId`, check if a record was returned by `.returning()`. If `returning()` yields an empty array or `undefined`, it means the record ID either didn't exist or didn't belong to the current user. Throw a specific error (e.g., "Record not found or user unauthorized") in this case. Catch this specific error in your `catch` block alongside the "Unauthorized" error before the generic fallback.
+
+    ```typescript
+    // Example: Updating a record securely
+    import { and, eq } from "drizzle-orm";
+    // ... other imports and requireUserId call within try block
+
+    const [updatedRecord] = await db.update(prompts)
+      .set({ content: "new content", updated_at: new Date() })
+      .where(and(eq(prompts.id, recordId), eq(prompts.userId, userId))) // Ensures ownership
+      .returning();
+
+    // Check if the update affected any row owned by the user
+    if (!updatedRecord) {
+      throw new Error("Prompt not found or user unauthorized to update.");
+    }
+    // ... rest of try block
+    // ... catch block handles "Unauthorized" and "Prompt not found..." errors specifically
+    ```
+
+By strictly adhering to these steps, you ensure Server Actions robustly enforce data ownership, preventing users from accessing or modifying data that doesn't belong to them.

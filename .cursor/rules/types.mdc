@@ -1,0 +1,98 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+---
+
+**Description:**  
+Follow these rules when working with types in this codebase.
+
+**Globs:**  
+
+---
+
+### 1. Shared Types (Used in Multiple Files or Places)
+
+- Location: Place in the `types` folder that is located in the root project.
+- Filename: Use the format `example-types.ts`.
+- Import Path: Always import shared types via `@/types`.
+- Export: Export all shared types from `types/index.ts`.
+- Type Alias Preference: Prefer `type` aliases over `interface` unless extending objects/classes.
+- DB Types: For types generated from the database schema, import from `@/db/schema` (e.g., `SelectTodo` from `todos-schema.ts`).
+
+**Example:**
+
+`types/actions-types.ts`
+```ts
+export type ActionState =
+  | { isSuccess: true; message: string; data: T }
+  | { isSuccess: false; message: string; data?: never };
+```
+
+`types/index.ts`
+```ts
+export * from "./actions-types";
+```
+
+`components/MyComponent.tsx`
+```ts
+import { ActionState } from "@/types";
+
+function MyComponent(props: { action: ActionState }) {
+  // ...
+}
+```
+
+---
+
+### 2. Local Types (Used Only Within a Single File)
+
+- Location: Define directly within the file where used.
+- No Export: Do not export local types.
+- No Shared Folder: Do not move to the `types` folder.
+- Naming: Use clear, descriptive names, but avoid cluttering the global type space.
+
+**Example:**
+
+`components/StatusBadge.tsx`
+```ts
+// Local type, only used in this file
+type Status = "idle" | "loading" | "success" | "error";
+
+export function StatusBadge({ status }: { status: Status }) {
+  let color = "gray";
+  if (status === "loading") color = "blue";
+  if (status === "success") color = "green";
+  if (status === "error") color = "red";
+
+  return {status};
+}
+```
+
+---
+
+### 3. General Type Guidelines
+
+- Keep types as close as possible to where they’re used. Only promote to shared types when needed in multiple files.
+- Review and refactor types regularly. If a local type is reused elsewhere, move it to the `types` folder and update imports.
+- Consistent Naming: Use `PascalCase` for type names and `kebab-case` for filenames (e.g., `user-types.ts`).
+
+---
+
+**Quick Reference Table**
+
+| Scenario                  | Location           | File Naming         | Export? | Import Path   |
+|---------------------------|--------------------|---------------------|---------|--------------|
+| Shared/model types        | `types/`           | `example-types.ts`  | Yes     | `@/types`    |
+| Local (single-file) types | Same file as usage | N/A                 | No      | N/A          |
+| DB types                  | `db/schema`        | `todos-schema.ts`   | Yes     | `@/db/schema`|
+
+---
+
+**Summary**
+
+- Shared types: In `types/`, exported, imported via `@/types`.
+- Local types: Keep in the file, not exported or shared.
+- DB types: Import from `@/db/schema`.
+- Prefer `type` over `interface` unless necessary.
